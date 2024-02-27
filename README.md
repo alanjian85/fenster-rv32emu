@@ -1,8 +1,8 @@
-# Fenster
+# fenster-rv32emu
 
 Fenster /ˈfɛnstɐ/ -- a German word for "window".
 
-This library provides the most minimal and highly opinionated way to display a cross-platform 2D canvas. If you remember Borland BGI or drawing things in QBASIC or `INT 10h`- you know what I mean. As a nice bonus you also get cross-platform keyboard/mouse input and audio playback in only a few lines of code.
+This library provides the most minimal and highly opinionated way to display a cross-platform 2D canvas. If you remember Borland BGI or drawing things in QBASIC or `INT 10h`- you know what I mean. As a nice bonus you also get cross-platform keyboard/mouse input and audio playback in only a few lines of code. This repository is the rv32emu port of the original library.
 
 ## What it does for you
 
@@ -56,6 +56,8 @@ cc main.c -lgdi32 -lwinmm -o main.exe && main.exe
 ```
 
 That's it.
+
+If your target is rv32emu, define an additional macro `__rv32emu__` to force Fenster to use SDL-oriented system calls rather than X window calls.
 
 ## API
 

@@ -7,6 +7,9 @@
 #include <objc/objc-runtime.h>
 #elif defined(_WIN32)
 #include <windows.h>
+#elif defined(__rv32emu__)
+#include <string.h>
+#include <time.h>
 #else
 #define _DEFAULT_SOURCE 1
 #include <X11/XKBlib.h>
@@ -32,6 +35,10 @@ struct fenster {
   id wnd;
 #elif defined(_WIN32)
   HWND hwnd;
+#elif defined(__rv32emu__)
+  void *event_queue;
+  uint32_t event_count;
+  size_t event_queue_start;
 #else
   Display *dpy;
   Window w;
@@ -168,10 +175,10 @@ FENSTER_API int fenster_loop(struct fenster *f) {
 // clang-format off
 static const uint8_t FENSTER_KEYCODES[] = {0,27,49,50,51,52,53,54,55,56,57,48,45,61,8,9,81,87,69,82,84,89,85,73,79,80,91,93,10,0,65,83,68,70,71,72,74,75,76,59,39,96,0,92,90,88,67,86,66,78,77,44,46,47,0,0,0,32,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,17,3,0,20,0,19,0,5,18,4,26,127};
 // clang-format on
-typedef struct BINFO{
-    BITMAPINFOHEADER    bmiHeader;
-    RGBQUAD             bmiColors[3];
-}BINFO;
+typedef struct BINFO {
+  BITMAPINFOHEADER bmiHeader;
+  RGBQUAD bmiColors[3];
+} BINFO;
 static LRESULT CALLBACK fenster_wndproc(HWND hwnd, UINT msg, WPARAM wParam,
                                         LPARAM lParam) {
   struct fenster *f = (struct fenster *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
@@ -255,6 +262,174 @@ FENSTER_API int fenster_loop(struct fenster *f) {
   InvalidateRect(f->hwnd, NULL, TRUE);
   return 0;
 }
+#elif defined(__rv32emu__)
+
+#define RV32EMU_QUEUE_CAPACITY 128
+
+enum {
+  RV32EMU_KEYCODE_RETURN = 0x0000000D,
+  RV32EMU_KEYCODE_UP = 0x40000052,
+  RV32EMU_KEYCODE_DOWN = 0x40000051,
+  RV32EMU_KEYCODE_RIGHT = 0x4000004F,
+  RV32EMU_KEYCODE_LEFT = 0x40000050,
+  RV32EMU_KEYCODE_LCTRL = 0x400000E0,
+  RV32EMU_KEYCODE_RCTRL = 0x400000E4,
+  RV32EMU_KEYCODE_LSHIFT = 0x400000E1,
+  RV32EMU_KEYCODE_RSHIFT = 0x400000E5,
+  RV32EMU_KEYCODE_LALT = 0x400000E2,
+  RV32EMU_KEYCODE_RALT = 0x400000E6,
+  RV32EMU_KEYCODE_LMETA = 0x400000E3,
+  RV32EMU_KEYCODE_RMETA = 0x400000E7,
+};
+
+typedef struct {
+  uint32_t keycode;
+  uint8_t state;
+  uint16_t mod;
+} rv32emu_key_rv32emu_event_t;
+
+typedef struct {
+  int32_t x, y, xrel, yrel;
+} rv32emu_mouse_motion_t;
+
+enum {
+  RV32EMU_MOUSE_BUTTON_LEFT = 1,
+};
+
+typedef struct {
+  uint8_t button;
+  uint8_t state;
+} rv32emu_mouse_button_t;
+
+enum {
+  RV32EMU_KEY_EVENT = 0,
+  RV32EMU_MOUSE_MOTION_EVENT = 1,
+  RV32EMU_MOUSE_BUTTON_EVENT = 2,
+  RV32EMU_QUIT_EVENT = 3,
+};
+
+typedef struct {
+  uint32_t type;
+  union {
+    rv32emu_key_rv32emu_event_t key_event;
+    union {
+      rv32emu_mouse_motion_t motion;
+      rv32emu_mouse_button_t button;
+    } mouse;
+  };
+} rv32emu_event_t;
+
+enum {
+  RV32EMU_RELATIVE_MODE_SUBMISSION = 0,
+  RV32EMU_WINDOW_TITLE_SUBMISSION = 1,
+};
+
+typedef struct {
+  uint8_t enabled;
+} rv32emu_mouse_rv32emu_submission_t;
+
+typedef struct {
+  uint32_t title;
+  uint32_t size;
+} rv32emu_title_rv32emu_submission_t;
+
+typedef struct {
+  uint32_t type;
+  union {
+    rv32emu_mouse_rv32emu_submission_t mouse;
+    rv32emu_title_rv32emu_submission_t title;
+  };
+} rv32emu_submission_t;
+
+FENSTER_API int fenster_open(struct fenster *f) {
+  f->event_queue =
+      malloc((sizeof(rv32emu_event_t) + sizeof(rv32emu_submission_t)) *
+             RV32EMU_QUEUE_CAPACITY);
+  f->event_count = 0;
+  register int a0 asm("a0") = (int)f->event_queue;
+  register int a1 asm("a1") = RV32EMU_QUEUE_CAPACITY;
+  register int a2 asm("a2") = (int)&f->event_count;
+  register int a7 asm("a7") = 0xc0de;
+  asm volatile("scall" : : "r"(a0), "r"(a1), "r"(a2), "r"(a7) : "memory");
+  f->event_queue_start = 0;
+
+  rv32emu_submission_t submission;
+  submission.type = RV32EMU_WINDOW_TITLE_SUBMISSION;
+  submission.title.title = (uint32_t)f->title;
+  submission.title.size = strlen(f->title);
+  rv32emu_submission_t *submission_queue =
+      (rv32emu_submission_t *)((rv32emu_event_t *)f->event_queue +
+                               RV32EMU_QUEUE_CAPACITY);
+  submission_queue[0] = submission;
+  a0 = 1;
+  a7 = 0xfeed;
+  asm volatile("scall" : : "r"(a0), "r"(a7) : "memory");
+
+  return 0;
+}
+
+FENSTER_API void fenster_close(struct fenster *f) { free(f->event_queue); }
+
+FENSTER_API int fenster_loop(struct fenster *f) {
+  for (; f->event_count > 0; f->event_count--) {
+    rv32emu_event_t event =
+        ((rv32emu_event_t *)f->event_queue)[f->event_queue_start];
+    switch (event.type) {
+    case RV32EMU_KEY_EVENT: {
+      uint32_t keycode = event.key_event.keycode;
+      uint8_t state = event.key_event.state;
+
+      if (keycode == RV32EMU_KEYCODE_RETURN)
+        f->keys[10] = state;
+      else if (keycode < 128)
+        f->keys[keycode] = state;
+
+      if (keycode == RV32EMU_KEYCODE_UP)
+        f->keys[17] = state;
+      if (keycode == RV32EMU_KEYCODE_DOWN)
+        f->keys[18] = state;
+      if (keycode == RV32EMU_KEYCODE_RIGHT)
+        f->keys[19] = state;
+      if (keycode == RV32EMU_KEYCODE_LEFT)
+        f->keys[20] = state;
+
+      if (keycode == RV32EMU_KEYCODE_LCTRL || keycode == RV32EMU_KEYCODE_RCTRL)
+        f->mod = state ? f->mod | 1 : f->mod & 0b1110;
+      if (keycode == RV32EMU_KEYCODE_LSHIFT ||
+          keycode == RV32EMU_KEYCODE_RSHIFT)
+        f->mod = state ? f->mod | 2 : f->mod & 0b1101;
+      if (keycode == RV32EMU_KEYCODE_LALT || keycode == RV32EMU_KEYCODE_RALT)
+        f->mod = state ? f->mod | 4 : f->mod & 0b1011;
+      if (keycode == RV32EMU_KEYCODE_LMETA || keycode == RV32EMU_KEYCODE_RMETA)
+        f->mod = state ? f->mod | 8 : f->mod & 0b0111;
+
+      break;
+    }
+    case RV32EMU_MOUSE_MOTION_EVENT:
+      f->x = event.mouse.motion.x;
+      f->y = event.mouse.motion.y;
+      break;
+    case RV32EMU_MOUSE_BUTTON_EVENT:
+      if (event.mouse.button.button == RV32EMU_MOUSE_BUTTON_LEFT)
+        f->mouse = event.mouse.button.state;
+      break;
+    case RV32EMU_QUIT_EVENT:
+      return -1;
+    }
+    f->event_queue_start =
+        (f->event_queue_start + 1) & (RV32EMU_QUEUE_CAPACITY - 1);
+  }
+
+  register int a0 asm("a0") = (uintptr_t)f->buf;
+  register int a1 asm("a1") = f->width;
+  register int a2 asm("a2") = f->height;
+  register int a7 asm("a7") = 0xbeef;
+  asm volatile("scall" : : "r"(a0), "r"(a1), "r"(a2), "r"(a7) : "memory");
+  return 0;
+}
+
+#undef RV32EMU_QUEUE_CAPACITY
+
 #else
 // clang-format off
 static int FENSTER_KEYCODES[124] = {XK_BackSpace,8,XK_Delete,127,XK_Down,18,XK_End,5,XK_Escape,27,XK_Home,2,XK_Insert,26,XK_Left,20,XK_Page_Down,4,XK_Page_Up,3,XK_Return,10,XK_Right,19,XK_Tab,9,XK_Up,17,XK_apostrophe,39,XK_backslash,92,XK_bracketleft,91,XK_bracketright,93,XK_comma,44,XK_equal,61,XK_grave,96,XK_minus,45,XK_period,46,XK_semicolon,59,XK_slash,47,XK_space,32,XK_a,65,XK_b,66,XK_c,67,XK_d,68,XK_e,69,XK_f,70,XK_g,71,XK_h,72,XK_i,73,XK_j,74,XK_k,75,XK_l,76,XK_m,77,XK_n,78,XK_o,79,XK_p,80,XK_q,81,XK_r,82,XK_s,83,XK_t,84,XK_u,85,XK_v,86,XK_w,87,XK_x,88,XK_y,89,XK_z,90,XK_0,48,XK_1,49,XK_2,50,XK_3,51,XK_4,52,XK_5,53,XK_6,54,XK_7,55,XK_8,56,XK_9,57};
@@ -310,13 +485,22 @@ FENSTER_API int fenster_loop(struct fenster *f) {
 }
 #endif
 
-#ifdef _WIN32
+#if defined(_WIN32)
 FENSTER_API void fenster_sleep(int64_t ms) { Sleep(ms); }
 FENSTER_API int64_t fenster_time() {
   LARGE_INTEGER freq, count;
   QueryPerformanceFrequency(&freq);
   QueryPerformanceCounter(&count);
   return (int64_t)(count.QuadPart * 1000.0 / freq.QuadPart);
+}
+#elif defined(__rv32emu__)
+FENSTER_API int64_t fenster_time(void) {
+  return (int64_t)clock() / (CLOCKS_PER_SEC / 1000.0f);
+}
+FENSTER_API void fenster_sleep(int64_t ms) {
+  int64_t start = fenster_time();
+  while (fenster_time() - start < ms)
+    ;
 }
 #else
 FENSTER_API void fenster_sleep(int64_t ms) {
